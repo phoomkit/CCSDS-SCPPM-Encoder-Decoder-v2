@@ -82,41 +82,24 @@ def run_full_system(
             "r_t": r_t,
         })
 
-    # ส่งผลจาก Viterbi เข้า decoder ส่วน frame และเก็บ CRC ของทุก block
-    frames, crc_ok = decode_first_part(decoded_blocks, frame_bits)
+    # ส่งผลจาก Viterbi เข้า decoder ส่วน frame ตามไฟล์ที่ผู้ใช้ให้มา
+    # ผลตรวจยังใช้ภายในฟังก์ชันเดิม แต่ไม่เพิ่มรายงานแยกบนจอหรือกราฟ
+    frames, _ = decode_first_part(decoded_blocks, frame_bits)
     if frames:
-        candidate_recovered_data = np.concatenate([frame[0] for frame in frames])
-    else:
-        candidate_recovered_data = np.array([], dtype=np.uint8)
-
-    # Payload หนึ่ง frame กระจายอยู่ในทั้งสาม blocks
-    # ถ้า CRC ของ block ใดผิด ต้องปฏิเสธทั้ง frame และไม่สร้างข้อมูลปลอมแทน
-    failed_crc_blocks = [
-        block_index + 1
-        for block_index, passed in enumerate(crc_ok)
-        if not passed
-    ]
-    frame_accepted = bool(frames) and len(failed_crc_blocks) == 0
-    if frame_accepted:
-        recovered_data = candidate_recovered_data.copy()
+        recovered_data = np.concatenate([frame[0] for frame in frames])
     else:
         recovered_data = np.array([], dtype=np.uint8)
 
-    # ใน simulation ยังเก็บ candidate ก่อน CRC discard เพื่อวัด decoder BER
-    # candidate นี้ใช้วิเคราะห์เท่านั้น และไม่ถือว่าเป็นข้อมูลที่ระบบส่งมอบ
-    if len(candidate_recovered_data) == len(original_data):
-        ber = float(np.mean(candidate_recovered_data != original_data))
+    # BER ใช้ข้อมูล payload เต็มทั้ง frame ไม่ใช่เฉพาะช่วงที่ตัดมาแสดงกราฟ
+    if len(recovered_data) == len(original_data):
+        ber = float(np.mean(recovered_data != original_data))
     else:
         ber = None
 
     return {
         "original_data": original_data,
         "recovered_data": recovered_data,
-        "candidate_recovered_data": candidate_recovered_data,
         "ber": ber,
-        "frame_accepted": frame_accepted,
-        "crc_ok": crc_ok,
-        "failed_crc_blocks": failed_crc_blocks,
         "decoded_blocks": decoded_blocks,
         "channel_blocks": channel_blocks,
         "use_turbulence": use_turbulence,
@@ -139,7 +122,6 @@ def plot_full_system(
 
     original = result["original_data"][:number_of_bits]
     recovered = result["recovered_data"][:number_of_bits]
-    candidate = result["candidate_recovered_data"][:number_of_bits]
     channel = result["channel_blocks"][block_index]
     number_of_slots = min(number_of_symbols * 4, len(channel["x_t"]))
     slot_edges = np.arange(number_of_slots + 1)
@@ -215,21 +197,11 @@ def plot_full_system(
     # แถว 6: เปรียบเทียบข้อมูลหลังถอดครบทุกขั้นกับข้อมูลต้นฉบับ
     axes[5].stairs(original, bit_edges, color="#2463a6", linewidth=2.2,
                    alpha=0.55, label="Original")
-    if result["frame_accepted"] and len(recovered):
+    if len(recovered):
         axes[5].stairs(recovered, np.arange(len(recovered) + 1),
                        color="#d64d51", linewidth=1.3, linestyle="--", label="Recovered")
-    elif len(candidate):
-        axes[5].stairs(candidate, np.arange(len(candidate) + 1),
-                       color="#b87724", linewidth=1.3, linestyle="--",
-                       label="Decoded candidate (CRC rejected)")
-        failed = ", ".join(str(number) for number in result["failed_crc_blocks"])
-        axes[5].text(
-            0.5, 1.08, f"Frame rejected: CRC failed in block(s) {failed}",
-            transform=axes[5].transAxes, ha="center", color="#b43b35",
-            fontweight="bold",
-        )
     else:
-        axes[5].text(0.5, 0.5, "Frame rejected: no decoded candidate",
+        axes[5].text(0.5, 0.5, "Frame decoder returned no frame",
                      transform=axes[5].transAxes, ha="center")
     axes[5].set_title("6. Recovered data - after all decoding stages", loc="left")
     axes[5].legend(loc="upper right", fontsize=9)
@@ -266,7 +238,6 @@ def calculate_ber_curve(
     for photons in photon_levels:
         total_errors = 0
         total_bits = 0
-        rejected_frames = 0
 
         for trial_number in range(trials_per_level):
             trial = run_full_system(
@@ -276,14 +247,12 @@ def calculate_ber_curve(
                 trial_number=trial_number,
             )
             original = trial["original_data"]
-            candidate = trial["candidate_recovered_data"]
-            if len(candidate) != len(original):
-                raise RuntimeError("คำนวณ BER ไม่ได้ เพราะความยาว decoded candidate ไม่ตรง")
+            recovered = trial["recovered_data"]
+            if len(recovered) != len(original):
+                raise RuntimeError("คำนวณ BER ไม่ได้ เพราะความยาว recovered payload ไม่ตรง")
 
-            total_errors += int(np.count_nonzero(candidate != original))
+            total_errors += int(np.count_nonzero(recovered != original))
             total_bits += len(original)
-            if not trial["frame_accepted"]:
-                rejected_frames += 1
 
         ber = total_errors / total_bits
         measured_ber.append(ber)
@@ -297,8 +266,7 @@ def calculate_ber_curve(
 
         print(
             f"photons/pulse={photons:g}: BER={ber:.6g} "
-            f"จาก {trials_per_level} trials, "
-            f"CRC rejected={rejected_frames}/{trials_per_level}"
+            f"จาก {trials_per_level} trials"
         )
 
     return {
@@ -356,13 +324,6 @@ def plot_ber_curve(ber_curve, show=True):
 
 if __name__ == "__main__":
     result = run_full_system(USE_TURBULENCE, USE_POISSON, SIGNAL_PHOTONS)
-    for block_index, passed in enumerate(result["crc_ok"]):
-        print(f"Block {block_index + 1}: CRC {'PASS' if passed else 'FAIL'}")
-    if result["frame_accepted"]:
-        print("Frame ACCEPTED")
-    else:
-        failed = ", ".join(str(number) for number in result["failed_crc_blocks"])
-        print(f"Frame REJECTED: CRC failed in block(s) {failed}")
     figure = plot_full_system(
         result, NUMBER_OF_BITS, NUMBER_OF_SYMBOLS, PLOT_BLOCK, show=False
     )

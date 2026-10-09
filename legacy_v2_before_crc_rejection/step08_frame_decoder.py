@@ -63,12 +63,11 @@ def Deslicer(blocks):
 
 
 def ASM_Decoder(stream, frame_bits, crc_ok):
-    """แยก frame จากตำแหน่งและความยาวที่ตกลงไว้ล่วงหน้า.
+    """แยก frame ที่ตำแหน่งคาดไว้ ตามพฤติกรรมไฟล์ต้นฉบับ.
 
     frame_bits คือความยาวข้อมูลจริงที่ตกลงกัน ไม่รวม ASM และ padding
-    ยังไม่ใช่การค้นหา synchronization เมื่อไม่รู้ตำแหน่งเริ่ม frame จึงเก็บ
-    asm_found ไว้เป็นข้อมูลตรวจสอบ แต่ไม่ใช้ปฏิเสธ frame ในขั้นนี้
-    คืน tuples (decoded candidate, พบ ASM หรือไม่, CRC ของ blocks ผ่านหรือไม่)
+    ยังไม่ใช่การค้นหา synchronization เมื่อไม่รู้ตำแหน่งเริ่ม frame
+    คืน tuples (ข้อมูล frame, พบ ASM หรือไม่, CRC ของ blocks ที่เกี่ยวข้องผ่านหรือไม่)
     """
     asm = np.unpackbits(np.array([ASM_Value], dtype=">u4").view(np.uint8))
     frame_len = 32 + frame_bits
@@ -80,6 +79,8 @@ def ASM_Decoder(stream, frame_bits, crc_ok):
         first_block = pos // block_size
         last_block = (pos + frame_len - 1) // block_size
         valid = all(crc_ok[first_block:last_block + 1])
+        if not asm_found and valid:
+            break
         frames.append((stream[pos + 32:pos + frame_len], asm_found, valid))
         pos += frame_len
 

@@ -81,18 +81,12 @@ ber_figure = plot_ber_curve(ber_curve)
 เมื่อปิด Poisson กราฟ r(t) เป็นความเข้ม/ค่าเฉลี่ยโฟตอน ไม่ใช่จำนวนโฟตอนที่สุ่มตรวจพบ
 `n_poisson` เป็นผลต่างจากสัญญาณก่อนเข้า Poisson ส่วน `r_t` ไม่ติดลบ
 
-## การคืนข้อมูลและ CRC rejection
+## การคืนข้อมูล
 
 Step 8 ใช้ขั้นตอนจาก `EncoderDecoder_FirstPart (1).py`:
 ตัด termination → ตรวจและแยก CRC → de-randomize → รวม blocks → ASM_Decoder
 การตรวจภายในและผลคืนของ ASM_Decoder คงตามต้นฉบับ
-Step 9 แสดงผล CRC ของแต่ละ block และสถานะ `Frame ACCEPTED` หรือ
-`Frame REJECTED` เมื่อรันเป็นไฟล์หลัก
-
-Payload หนึ่ง frame กระจายอยู่ในทั้งสาม blocks ดังนั้นถ้า CRC ของ block ใด
-ไม่ผ่าน ระบบจะปฏิเสธทั้ง frame โดยกำหนด `recovered_data` เป็น array ว่าง
-และไม่เติมศูนย์หรือข้อมูลเดาแทน บิตที่ Viterbi ถอดได้ก่อนการปฏิเสธยังอยู่ใน
-`candidate_recovered_data` สำหรับวิเคราะห์ BER ภายใน simulation เท่านั้น
+ไม่มีรายงานแยก asm_ok, crc_ok, payload_errors หรือ BER ในหน้าจอและกราฟใหม่
 
 ข้อมูลปัจจุบันคือหนึ่ง frame ยาว 10,012 บิต รู้ตำแหน่งเริ่ม frame และขอบเขต slots/blocks แล้ว
 ความยาว frame เป็นค่าที่ตกลงไว้ทั้งสองฝั่ง ไม่ใช้การตัดศูนย์ท้ายเพื่อลบ padding
